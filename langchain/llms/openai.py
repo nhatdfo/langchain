@@ -76,8 +76,8 @@ def _streaming_response_template() -> Dict[str, Any]:
 def _create_retry_decorator(llm: Union[BaseOpenAI, OpenAIChat]) -> Callable[[Any], Any]:
     import openai
 
-    min_seconds = 4
-    max_seconds = 10
+    min_seconds = 6
+    max_seconds = 20
     # Wait 2^x * 1 second between each retry starting with
     # 4 seconds, then up to 10 seconds, then 10 seconds afterwards
     return retry(
