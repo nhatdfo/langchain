@@ -37,7 +37,18 @@ from langchain.llms.base import BaseLLM
 from langchain.schema import Generation, LLMResult
 from langchain.utils import get_from_dict_or_env
 
+
+import os 
+import random
+from functools import wraps
+
+open_ai_key1 = os.getenv("OPENAI_API_KEY")
+open_ai_key2 = os.getenv("OPENAI_API_KEY_2")
+
+list_of_open_ai_key =[open_ai_key1,open_ai_key2]
+
 logger = logging.getLogger(__name__)
+
 
 
 def update_token_usage(
@@ -73,14 +84,36 @@ def _streaming_response_template() -> Dict[str, Any]:
     }
 
 
+# def _create_retry_decorator(llm: Union[BaseOpenAI, OpenAIChat]) -> Callable[[Any], Any]:
+#     import openai
+
+#     min_seconds = 6
+#     max_seconds = 20
+#     # Wait 2^x * 1 second between each retry starting with
+#     # 4 seconds, then up to 10 seconds, then 10 seconds afterwards
+#     return retry(
+#         reraise=True,
+#         stop=stop_after_attempt(llm.max_retries),
+#         wait=wait_exponential(multiplier=1, min=min_seconds, max=max_seconds),
+#         retry=(
+#             retry_if_exception_type(openai.error.Timeout)
+#             | retry_if_exception_type(openai.error.APIError)
+#             | retry_if_exception_type(openai.error.APIConnectionError)
+#             | retry_if_exception_type(openai.error.RateLimitError)
+#             | retry_if_exception_type(openai.error.ServiceUnavailableError)
+#         ),
+#         before_sleep=before_sleep_log(logger, logging.WARNING),
+#     )
+
 def _create_retry_decorator(llm: Union[BaseOpenAI, OpenAIChat]) -> Callable[[Any], Any]:
     import openai
+    import time 
 
     min_seconds = 6
     max_seconds = 20
     # Wait 2^x * 1 second between each retry starting with
     # 4 seconds, then up to 10 seconds, then 10 seconds afterwards
-    return retry(
+    retry_decorator = retry(
         reraise=True,
         stop=stop_after_attempt(llm.max_retries),
         wait=wait_exponential(multiplier=1, min=min_seconds, max=max_seconds),
@@ -88,11 +121,28 @@ def _create_retry_decorator(llm: Union[BaseOpenAI, OpenAIChat]) -> Callable[[Any
             retry_if_exception_type(openai.error.Timeout)
             | retry_if_exception_type(openai.error.APIError)
             | retry_if_exception_type(openai.error.APIConnectionError)
-            | retry_if_exception_type(openai.error.RateLimitError)
             | retry_if_exception_type(openai.error.ServiceUnavailableError)
         ),
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
+
+    def wrapper(func):
+        @retry_decorator
+        def inner(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except openai.error.RateLimitError:
+                # Your RateLimitError handling code here
+                current_key_used = os.getenv("OPENAI_API_KEY")
+                current_key_used= [current_key_used]
+                list_of_key_not_used = [item for item in list_of_open_ai_key if item not in current_key_used]
+                key_to_replaced = random.choice(list_of_key_not_used)
+                os.environ["OPENAI_API_KEY"] = key_to_replaced
+                time.sleep(min_seconds)
+                return func(*args, **kwargs)
+        return inner
+    return wrapper
+
 
 
 def completion_with_retry(llm: Union[BaseOpenAI, OpenAIChat], **kwargs: Any) -> Any:
